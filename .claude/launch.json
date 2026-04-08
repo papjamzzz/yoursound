@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "yoursound-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "-p", "5570", "-s", "src"],
+      "port": 5570
+    }
+  ]
+}
