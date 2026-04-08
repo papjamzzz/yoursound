@@ -668,6 +668,38 @@ body {
   margin-right: 2px;
 }
 
+/* ─── Camera Preview ─────────────────────────────────────────────────────── */
+.cam-preview {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  object-fit: cover;
+  display: none;
+  background: #000;
+  z-index: 2;
+}
+
+.cam-label {
+  position: absolute;
+  top: 12px; left: 16px;
+  font-family: var(--mono);
+  font-size: 8px;
+  letter-spacing: 0.22em;
+  color: rgba(24,255,207,0.7);
+  z-index: 3;
+  display: none;
+  pointer-events: none;
+}
+
+.panel-center {
+  position: relative;
+}
+
+.cam-preview.active,
+.cam-label.active {
+  display: block;
+}
+
 /* ─── Scrollbar ──────────────────────────────────────────────────────────── */
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }

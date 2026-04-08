@@ -1,6 +1,5 @@
 // ─── YourSound CK-1 ─ Main Audio Engine ─────────────────────────────────────
 
-// ─── State ────────────────────────────────────────────────────────────────────
 const state = {
   recording: false,
   startTime: null,
@@ -10,151 +9,105 @@ const state = {
   audioCtx: null,
   analyserL: null,
   analyserR: null,
-  splitter: null,
-  merger: null,
   gainNodes: { sys: null, mic: null, mix: null },
   streams: { sys: null, mic: null, cam: null, scr: null },
-  sourceNodes: { sys: null, mic: null },
   sources: { sys: true, mic: true, cam: false, scr: false },
   clipTimeout: null,
   gains: { sys: 75, mic: 82, mix: 60 },
+  engineReady: false,
 };
 
 // ─── Knob Renderer ────────────────────────────────────────────────────────────
 function drawKnob(canvas, value) {
   const ctx = canvas.getContext('2d');
   const w = canvas.width, h = canvas.height;
-  const cx = w / 2, cy = h / 2, r = (w / 2) - 4;
+  const cx = w / 2, cy = h / 2, r = w / 2 - 4;
   const startAngle = Math.PI * 0.75;
   const endAngle = Math.PI * 2.25;
-  const pct = value / 100;
-  const angle = startAngle + pct * (endAngle - startAngle);
+  const angle = startAngle + (value / 100) * (endAngle - startAngle);
 
   ctx.clearRect(0, 0, w, h);
 
-  // Track bg
   ctx.beginPath();
   ctx.arc(cx, cy, r - 4, startAngle, endAngle);
   ctx.strokeStyle = 'rgba(255,255,255,0.06)';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.stroke();
+  ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
 
-  // Active arc
   ctx.beginPath();
   ctx.arc(cx, cy, r - 4, startAngle, angle);
   const grad = ctx.createLinearGradient(0, h, w, 0);
-  grad.addColorStop(0, '#5030cc');
-  grad.addColorStop(1, '#9c6fff');
-  ctx.strokeStyle = grad;
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.stroke();
+  grad.addColorStop(0, '#5030cc'); grad.addColorStop(1, '#9c6fff');
+  ctx.strokeStyle = grad; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.stroke();
 
-  // Body
-  const bodyGrad = ctx.createRadialGradient(cx - r*0.2, cy - r*0.2, 2, cx, cy, r - 6);
-  bodyGrad.addColorStop(0, '#1e2238');
-  bodyGrad.addColorStop(1, '#0d1020');
-  ctx.beginPath();
-  ctx.arc(cx, cy, r - 6, 0, Math.PI * 2);
-  ctx.fillStyle = bodyGrad;
-  ctx.fill();
-  ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  ctx.lineWidth = 1;
-  ctx.stroke();
+  const bodyGrad = ctx.createRadialGradient(cx - r * 0.2, cy - r * 0.2, 2, cx, cy, r - 6);
+  bodyGrad.addColorStop(0, '#1e2238'); bodyGrad.addColorStop(1, '#0d1020');
+  ctx.beginPath(); ctx.arc(cx, cy, r - 6, 0, Math.PI * 2);
+  ctx.fillStyle = bodyGrad; ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1; ctx.stroke();
 
-  // Tick
   const tickLen = 9;
-  const tx = cx + (r - 12) * Math.cos(angle);
-  const ty = cy + (r - 12) * Math.sin(angle);
-  const tx2 = cx + (r - 12 - tickLen) * Math.cos(angle);
-  const ty2 = cy + (r - 12 - tickLen) * Math.sin(angle);
-  ctx.beginPath();
-  ctx.moveTo(tx, ty);
-  ctx.lineTo(tx2, ty2);
-  ctx.strokeStyle = '#9c6fff';
-  ctx.lineWidth = 2.5;
-  ctx.lineCap = 'round';
-  ctx.shadowColor = '#7c4dff';
-  ctx.shadowBlur = 6;
-  ctx.stroke();
-  ctx.shadowBlur = 0;
+  const tx = cx + (r - 12) * Math.cos(angle), ty = cy + (r - 12) * Math.sin(angle);
+  const tx2 = cx + (r - 21) * Math.cos(angle), ty2 = cy + (r - 21) * Math.sin(angle);
+  ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx2, ty2);
+  ctx.strokeStyle = '#9c6fff'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  ctx.shadowColor = '#7c4dff'; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0;
 }
 
-// ─── Knob Drag Interaction ────────────────────────────────────────────────────
 function initKnobs() {
-  const knobs = document.querySelectorAll('.knob');
-  knobs.forEach(canvas => {
+  document.querySelectorAll('.knob').forEach(canvas => {
     const id = canvas.id.replace('knob-', '');
     let dragging = false, startY = 0, startVal = 0;
-
-    drawKnob(canvas, parseInt(canvas.dataset.value));
+    drawKnob(canvas, state.gains[id] ?? 75);
 
     canvas.addEventListener('mousedown', e => {
-      dragging = true;
-      startY = e.clientY;
-      startVal = state.gains[id] ?? 75;
-      e.preventDefault();
+      dragging = true; startY = e.clientY; startVal = state.gains[id] ?? 75; e.preventDefault();
     });
-
     window.addEventListener('mousemove', e => {
       if (!dragging) return;
-      const delta = -(e.clientY - startY);
-      const newVal = Math.min(100, Math.max(0, startVal + Math.round(delta * 0.7)));
-      state.gains[id] = newVal;
-      drawKnob(canvas, newVal);
-      const valEl = document.getElementById(`val-${id}`);
-      if (valEl) valEl.textContent = newVal;
-      applyGain(id, newVal);
+      const val = Math.min(100, Math.max(0, startVal + Math.round(-(e.clientY - startY) * 0.7)));
+      state.gains[id] = val;
+      drawKnob(canvas, val);
+      const el = document.getElementById(`val-${id}`);
+      if (el) el.textContent = val;
+      applyGain(id, val);
     });
-
     window.addEventListener('mouseup', () => { dragging = false; });
   });
 }
 
 function applyGain(id, value) {
-  const linear = value / 100;
-  if (id === 'sys' && state.gainNodes.sys) state.gainNodes.sys.gain.value = linear;
-  if (id === 'mic' && state.gainNodes.mic) state.gainNodes.mic.gain.value = linear;
-  if (id === 'mix' && state.gainNodes.mix) state.gainNodes.mix.gain.value = linear;
+  const v = value / 100;
+  if (id === 'sys' && state.gainNodes.sys) state.gainNodes.sys.gain.setTargetAtTime(v, state.audioCtx.currentTime, 0.01);
+  if (id === 'mic' && state.gainNodes.mic) state.gainNodes.mic.gain.setTargetAtTime(v, state.audioCtx.currentTime, 0.01);
+  if (id === 'mix' && state.gainNodes.mix) state.gainNodes.mix.gain.setTargetAtTime(v, state.audioCtx.currentTime, 0.01);
 }
 
 // ─── VU Meters ────────────────────────────────────────────────────────────────
-const SEGMENTS = 16;
-const GREEN_THRESH = 10;
-const YELLOW_THRESH = 13;
+const SEGS = 16, GREEN_T = 10, YELLOW_T = 13;
 
 function buildVuColumns() {
   ['vuLeft', 'vuRight'].forEach(id => {
     const col = document.getElementById(id);
     col.innerHTML = '';
-    for (let i = 0; i < SEGMENTS; i++) {
-      const seg = document.createElement('div');
-      seg.className = 'vu-seg';
-      col.appendChild(seg);
+    for (let i = 0; i < SEGS; i++) {
+      const s = document.createElement('div');
+      s.className = 'vu-seg';
+      col.appendChild(s);
     }
   });
-}
-
-function updateVuMeters(levelL, levelR) {
-  setVuLevel('vuLeft', levelL);
-  setVuLevel('vuRight', levelR);
-  // CLIP detection
-  if (levelL > 0.95 || levelR > 0.95) triggerClip();
 }
 
 function setVuLevel(colId, level) {
-  const col = document.getElementById(colId);
-  const segs = col.querySelectorAll('.vu-seg');
-  const litCount = Math.round(level * SEGMENTS);
-  segs.forEach((seg, i) => {
-    seg.className = 'vu-seg';
-    if (i < litCount) {
-      if (i < GREEN_THRESH) seg.classList.add('lit-green');
-      else if (i < YELLOW_THRESH) seg.classList.add('lit-yellow');
-      else seg.classList.add('lit-red');
-    }
+  const segs = document.getElementById(colId).querySelectorAll('.vu-seg');
+  const lit = Math.round(level * SEGS);
+  segs.forEach((s, i) => {
+    s.className = 'vu-seg' + (i < lit ? (i < GREEN_T ? ' lit-green' : i < YELLOW_T ? ' lit-yellow' : ' lit-red') : '');
   });
+}
+
+function updateVuMeters(l, r) {
+  setVuLevel('vuLeft', l); setVuLevel('vuRight', r);
+  if (l > 0.94 || r > 0.94) triggerClip();
 }
 
 function triggerClip() {
@@ -164,189 +117,293 @@ function triggerClip() {
   state.clipTimeout = setTimeout(() => bar.classList.remove('clipping'), 400);
 }
 
-// ─── Spatial Canvas Visualizer ────────────────────────────────────────────────
-let orbs, particles, spatialAnim;
+// ─── Audio Engine ─────────────────────────────────────────────────────────────
+async function initAudioEngine() {
+  if (state.engineReady) return;
 
-const ORB_DEFS = {
-  sys: { color: '#7c4dff', glowColor: 'rgba(124,77,255,', x: 0.35, y: 0.45, vx: 0.0003, vy: 0.0002 },
-  mic: { color: '#448aff', glowColor: 'rgba(68,138,255,', x: 0.55, y: 0.38, vx: -0.0002, vy: 0.0003 },
-  cam: { color: '#18ffcf', glowColor: 'rgba(24,255,207,', x: 0.62, y: 0.6,  vx: 0.0002, vy: -0.0003 },
-  scr: { color: '#ff6b35', glowColor: 'rgba(255,107,53,', x: 0.3,  y: 0.6,  vx: -0.0003, vy: -0.0002 },
-};
+  state.audioCtx = new AudioContext();
+  const ctx = state.audioCtx;
+  if (ctx.state === 'suspended') await ctx.resume();
 
-function initSpatialCanvas() {
-  const canvas = document.getElementById('spatialCanvas');
+  // Gain nodes
+  state.gainNodes.sys = ctx.createGain();
+  state.gainNodes.mic = ctx.createGain();
+  state.gainNodes.mix = ctx.createGain();
+  state.gainNodes.sys.gain.value = state.gains.sys / 100;
+  state.gainNodes.mic.gain.value = state.gains.mic / 100;
+  state.gainNodes.mix.gain.value = state.gains.mix / 100;
 
-  particles = Array.from({ length: 80 }, () => ({
-    x: Math.random(), y: Math.random(),
-    vx: (Math.random() - 0.5) * 0.0001,
-    vy: (Math.random() - 0.5) * 0.0001,
-    size: Math.random() * 1.5 + 0.5,
-    alpha: Math.random() * 0.4 + 0.1,
-  }));
+  // Analysers on the mix bus
+  state.analyserL = ctx.createAnalyser(); state.analyserL.fftSize = 1024;
+  state.analyserR = ctx.createAnalyser(); state.analyserR.fftSize = 1024;
 
-  orbs = Object.entries(ORB_DEFS).map(([id, def]) => ({
-    id, ...def,
-    phase: Math.random() * Math.PI * 2,
-    speed: 1,
-  }));
+  // sys gain → mix
+  state.gainNodes.sys.connect(state.gainNodes.mix);
+  // mic gain → mix
+  state.gainNodes.mic.connect(state.gainNodes.mix);
+  // mix → analysers (no ctx.destination — avoids feedback)
+  const splitter = ctx.createChannelSplitter(2);
+  state.gainNodes.mix.connect(splitter);
+  splitter.connect(state.analyserL, 0);
+  splitter.connect(state.analyserR, 1);
 
-  function resizeCanvas() {
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
+  // ── Microphone ──
+  if (state.sources.mic) {
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+      state.streams.mic = micStream;
+      ctx.createMediaStreamSource(micStream).connect(state.gainNodes.mic);
+      updateDeviceList(await navigator.mediaDevices.enumerateDevices());
+    } catch (e) {
+      console.warn('Mic access denied:', e.message);
+    }
   }
-  resizeCanvas();
-  window.addEventListener('resize', resizeCanvas);
 
-  let t = 0;
-  function drawFrame() {
-    spatialAnim = requestAnimationFrame(drawFrame);
-    t += 0.016;
-    const { width: W, height: H } = canvas;
-    const ctx = canvas.getContext('2d');
-    ctx.clearRect(0, 0, W, H);
-
-    // Deep bg fill
-    ctx.fillStyle = '#07090f';
-    ctx.fillRect(0, 0, W, H);
-
-    // Grid
-    ctx.strokeStyle = 'rgba(80,60,160,0.08)';
-    ctx.lineWidth = 1;
-    const gridSpacing = 38;
-    for (let x = 0; x < W; x += gridSpacing) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
-    }
-    for (let y = 0; y < H; y += gridSpacing) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
-    }
-
-    // Radial glow center
-    const glow = ctx.createRadialGradient(W * 0.5, H * 0.5, 0, W * 0.5, H * 0.5, W * 0.6);
-    glow.addColorStop(0, 'rgba(60,20,120,0.12)');
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, W, H);
-
-    // Particles
-    particles.forEach(p => {
-      p.x += p.vx; p.y += p.vy;
-      if (p.x < 0) p.x = 1; if (p.x > 1) p.x = 0;
-      if (p.y < 0) p.y = 1; if (p.y > 1) p.y = 0;
-      ctx.beginPath();
-      ctx.arc(p.x * W, p.y * H, p.size, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(100,80,200,${p.alpha})`;
-      ctx.fill();
-    });
-
-    // Active orbs
-    const activeOrbs = orbs.filter(o => state.sources[o.id]);
-
-    // Connection lines between nearby active orbs
-    for (let i = 0; i < activeOrbs.length; i++) {
-      for (let j = i + 1; j < activeOrbs.length; j++) {
-        const a = activeOrbs[i], b = activeOrbs[j];
-        const ax = a.x * W, ay = a.y * H;
-        const bx = b.x * W, by = b.y * H;
-        const dist = Math.hypot(ax - bx, ay - by);
-        if (dist < 260) {
-          const alpha = (1 - dist / 260) * 0.25;
-          ctx.beginPath();
-          ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
-          ctx.strokeStyle = `rgba(124,77,255,${alpha})`;
-          ctx.lineWidth = 1;
-          ctx.stroke();
+  // ── System Audio: try BlackHole first, then getDisplayMedia ──
+  if (state.sources.sys) {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const bh = devices.filter(d => d.kind === 'audioinput').find(d =>
+        /blackhole|soundflower/i.test(d.label)
+      );
+      if (bh) {
+        const sysStream = await navigator.mediaDevices.getUserMedia({
+          audio: { deviceId: { exact: bh.deviceId }, echoCancellation: false }
+        });
+        state.streams.sys = sysStream;
+        ctx.createMediaStreamSource(sysStream).connect(state.gainNodes.sys);
+      } else {
+        // Fallback: capture desktop audio via getDisplayMedia
+        const dispStream = await navigator.mediaDevices.getDisplayMedia({
+          video: false, audio: true
+        });
+        state.streams.sys = dispStream;
+        const audioTracks = dispStream.getAudioTracks();
+        if (audioTracks.length > 0) {
+          const sysOnly = new MediaStream(audioTracks);
+          ctx.createMediaStreamSource(sysOnly).connect(state.gainNodes.sys);
         }
+        // Stop video tracks immediately (we only want audio)
+        dispStream.getVideoTracks().forEach(t => t.stop());
       }
+    } catch (e) {
+      console.warn('System audio unavailable:', e.message);
+      // Dim the sys source row
+      const sysRow = document.getElementById('src-sys');
+      if (sysRow) sysRow.style.opacity = '0.4';
     }
-
-    // Orbs
-    orbs.forEach(orb => {
-      const active = state.sources[orb.id];
-      const speed = state.recording ? 1.8 : 0.6;
-
-      // Drift
-      orb.x += orb.vx * speed;
-      orb.y += orb.vy * speed;
-      if (orb.x < 0.08 || orb.x > 0.92) orb.vx *= -1;
-      if (orb.y < 0.08 || orb.y > 0.92) orb.vy *= -1;
-
-      orb.phase += 0.02 * speed;
-      const pulse = active ? 1 + Math.sin(orb.phase) * 0.15 : 0.5;
-      const baseR = active ? 22 : 8;
-      const r = baseR * pulse;
-      const ox = orb.x * W, oy = orb.y * H;
-
-      if (!active) {
-        ctx.beginPath();
-        ctx.arc(ox, oy, 5, 0, Math.PI * 2);
-        ctx.fillStyle = orb.color + '22';
-        ctx.fill();
-        return;
-      }
-
-      // Glow
-      const glowR = r * 3.5;
-      const glowGrad = ctx.createRadialGradient(ox, oy, 0, ox, oy, glowR);
-      glowGrad.addColorStop(0, orb.glowColor + '0.3)');
-      glowGrad.addColorStop(0.5, orb.glowColor + '0.08)');
-      glowGrad.addColorStop(1, orb.glowColor + '0)');
-      ctx.beginPath();
-      ctx.arc(ox, oy, glowR, 0, Math.PI * 2);
-      ctx.fillStyle = glowGrad;
-      ctx.fill();
-
-      // Orb body
-      const orbGrad = ctx.createRadialGradient(ox - r * 0.3, oy - r * 0.3, 1, ox, oy, r);
-      orbGrad.addColorStop(0, orb.color + 'ff');
-      orbGrad.addColorStop(1, orb.color + '88');
-      ctx.beginPath();
-      ctx.arc(ox, oy, r, 0, Math.PI * 2);
-      ctx.fillStyle = orbGrad;
-      ctx.shadowColor = orb.color;
-      ctx.shadowBlur = 18;
-      ctx.fill();
-      ctx.shadowBlur = 0;
-    });
   }
 
-  drawFrame();
+  state.engineReady = true;
 }
 
-// ─── Waveform Canvas ──────────────────────────────────────────────────────────
-let waveAnim;
+function updateDeviceList(devices) {
+  const list = document.getElementById('deviceList');
+  if (!list) return;
+  const audioIn = devices.filter(d => d.kind === 'audioinput' && d.label);
+  if (!audioIn.length) return;
+  list.innerHTML = '';
+  audioIn.forEach((d, i) => {
+    const el = document.createElement('div');
+    el.className = 'device-item' + (i === 0 ? ' selected' : '');
+    el.textContent = d.label;
+    el.addEventListener('click', () => {
+      list.querySelectorAll('.device-item').forEach(x => x.classList.remove('selected'));
+      el.classList.add('selected');
+    });
+    list.appendChild(el);
+  });
+}
 
+// ─── Recording ────────────────────────────────────────────────────────────────
+async function startRecording() {
+  state.recordedChunks = [];
+
+  // Build a combined MediaStream from all active raw streams
+  const tracks = [];
+
+  if (state.sources.mic && state.streams.mic) {
+    state.streams.mic.getAudioTracks().forEach(t => tracks.push(t));
+  }
+  if (state.sources.sys && state.streams.sys) {
+    state.streams.sys.getAudioTracks().forEach(t => tracks.push(t));
+  }
+  if (state.sources.cam && state.streams.cam) {
+    state.streams.cam.getVideoTracks().forEach(t => tracks.push(t));
+    state.streams.cam.getAudioTracks().forEach(t => tracks.push(t));
+  }
+
+  if (!tracks.length) {
+    // Nothing captured yet — shouldn't happen but handle gracefully
+    console.warn('No active tracks to record');
+    return;
+  }
+
+  const combinedStream = new MediaStream(tracks);
+
+  // Pick best available mime type
+  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus',
+                 'audio/webm;codecs=opus', 'audio/webm', 'video/webm']
+    .find(m => MediaRecorder.isTypeSupported(m)) || '';
+
+  state.mediaRecorder = new MediaRecorder(combinedStream, mime ? { mimeType: mime } : {});
+  state.mediaRecorder.addEventListener('dataavailable', e => {
+    if (e.data.size > 0) state.recordedChunks.push(e.data);
+  });
+  state.mediaRecorder.start(100);
+
+  state.recording = true;
+  state.startTime = Date.now();
+
+  state.timerInterval = setInterval(() => {
+    const sec = Math.floor((Date.now() - state.startTime) / 1000);
+    const h = String(Math.floor(sec / 3600)).padStart(2, '0');
+    const m = String(Math.floor((sec % 3600) / 60)).padStart(2, '0');
+    const s = String(sec % 60).padStart(2, '0');
+    document.getElementById('timer').textContent = `${h}:${m}:${s}`;
+  }, 1000);
+}
+
+function stopRecording() {
+  return new Promise(resolve => {
+    if (!state.mediaRecorder || state.mediaRecorder.state === 'inactive') { resolve(); return; }
+    state.mediaRecorder.addEventListener('stop', resolve, { once: true });
+    state.mediaRecorder.stop();
+  }).then(() => {
+    state.recording = false;
+    clearInterval(state.timerInterval);
+  });
+}
+
+async function saveRecording() {
+  if (!state.recordedChunks.length) {
+    alert('No recording to save. Record something first.');
+    return;
+  }
+  const hasVideo = state.sources.cam;
+  const type = hasVideo ? 'video/webm' : 'audio/webm';
+  const ext  = hasVideo ? 'webm' : 'webm';
+  const blob = new Blob(state.recordedChunks, { type });
+  const now = new Date();
+  const pad = n => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = `yoursound_${stamp}.${ext}`;
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+// ─── Camera Toggle ────────────────────────────────────────────────────────────
+async function enableCamera() {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+    state.streams.cam = stream;
+    const vid = document.getElementById('camPreview');
+    vid.srcObject = stream;
+    vid.classList.add('active');
+    document.getElementById('camLabel').classList.add('active');
+    document.getElementById('spatialCanvas').style.display = 'none';
+  } catch (e) {
+    console.warn('Camera access denied:', e.message);
+    document.getElementById('toggle-cam').checked = false;
+    state.sources.cam = false;
+  }
+}
+
+function disableCamera() {
+  if (state.streams.cam) {
+    state.streams.cam.getTracks().forEach(t => t.stop());
+    state.streams.cam = null;
+  }
+  const vid = document.getElementById('camPreview');
+  vid.srcObject = null;
+  vid.classList.remove('active');
+  document.getElementById('camLabel').classList.remove('active');
+  document.getElementById('spatialCanvas').style.display = '';
+}
+
+// ─── Source Toggles ───────────────────────────────────────────────────────────
+function initSourceToggles() {
+  ['sys', 'mic', 'cam', 'scr'].forEach(id => {
+    const cb = document.getElementById(`toggle-${id}`);
+    const row = document.getElementById(`src-${id}`);
+    if (!cb || !row) return;
+
+    cb.addEventListener('change', async () => {
+      state.sources[id] = cb.checked;
+      row.classList.toggle('active', cb.checked);
+      row.querySelector('.source-dot').style.opacity = cb.checked ? '1' : '0.3';
+
+      if (id === 'cam') {
+        if (cb.checked) await enableCamera();
+        else disableCamera();
+      }
+
+      // Mute/unmute gain nodes if engine is running
+      if (state.engineReady) {
+        if (id === 'sys' && state.gainNodes.sys)
+          state.gainNodes.sys.gain.setTargetAtTime(cb.checked ? state.gains.sys/100 : 0, state.audioCtx.currentTime, 0.01);
+        if (id === 'mic' && state.gainNodes.mic)
+          state.gainNodes.mic.gain.setTargetAtTime(cb.checked ? state.gains.mic/100 : 0, state.audioCtx.currentTime, 0.01);
+      }
+    });
+  });
+}
+
+// ─── VU Loop ─────────────────────────────────────────────────────────────────
+function startVuLoop() {
+  (function tick() {
+    requestAnimationFrame(tick);
+    if (state.analyserL && state.analyserR && state.engineReady) {
+      const bL = new Uint8Array(state.analyserL.fftSize);
+      const bR = new Uint8Array(state.analyserR.fftSize);
+      state.analyserL.getByteTimeDomainData(bL);
+      state.analyserR.getByteTimeDomainData(bR);
+      updateVuMeters(Math.min(1, rms(bL)), Math.min(1, rms(bR)));
+    } else if (state.recording) {
+      const t = Date.now() / 1000;
+      updateVuMeters(
+        Math.min(1, 0.45 + Math.sin(t * 2.1) * 0.2 + Math.random() * 0.07),
+        Math.min(1, 0.42 + Math.sin(t * 1.8 + 0.3) * 0.2 + Math.random() * 0.07)
+      );
+    } else {
+      updateVuMeters(0, 0);
+    }
+  })();
+}
+
+function rms(buf) {
+  let s = 0;
+  for (let i = 0; i < buf.length; i++) { const v = (buf[i] - 128) / 128; s += v * v; }
+  return Math.sqrt(s / buf.length);
+}
+
+// ─── Waveform ─────────────────────────────────────────────────────────────────
 function startWaveform() {
   const canvas = document.getElementById('waveformCanvas');
   const ctx = canvas.getContext('2d');
   let phase = 0;
 
-  function resizeWave() {
-    canvas.width = canvas.offsetWidth;
-    canvas.height = canvas.offsetHeight;
-  }
-  resizeWave();
-  window.addEventListener('resize', resizeWave);
+  function resize() { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; }
+  resize();
+  window.addEventListener('resize', resize);
 
-  function drawWave() {
-    waveAnim = requestAnimationFrame(drawWave);
+  (function draw() {
+    requestAnimationFrame(draw);
     const { width: W, height: H } = canvas;
     const cy = H / 2;
     ctx.clearRect(0, 0, W, H);
 
     if (!state.recording) {
-      // Flat line
-      ctx.beginPath();
-      ctx.moveTo(0, cy);
-      ctx.lineTo(W, cy);
-      ctx.strokeStyle = 'rgba(68,138,255,0.3)';
-      ctx.lineWidth = 1.5;
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, cy); ctx.lineTo(W, cy);
+      ctx.strokeStyle = 'rgba(68,138,255,0.25)'; ctx.lineWidth = 1.5; ctx.stroke();
       return;
     }
 
-    // If we have an analyser, use real data
-    let samples;
+    let samples = null;
     if (state.analyserL) {
       const buf = new Uint8Array(state.analyserL.fftSize);
       state.analyserL.getByteTimeDomainData(buf);
@@ -362,260 +419,99 @@ function startWaveform() {
         y = cy + ((samples[idx] - 128) / 128) * (H * 0.42);
       } else {
         const env = 0.35 + Math.sin(phase * 0.3) * 0.2;
-        y = cy + Math.sin(phase + x * 0.04) * H * env * 0.5
-              + Math.sin(phase * 1.7 + x * 0.09) * H * env * 0.15;
+        y = cy + Math.sin(phase + x * 0.04) * H * env * 0.45
+               + Math.sin(phase * 1.7 + x * 0.09) * H * env * 0.15;
       }
-      if (x === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+      x === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
     }
-    ctx.strokeStyle = '#448aff';
-    ctx.lineWidth = 1.5;
-    ctx.shadowColor = '#448aff';
-    ctx.shadowBlur = 8;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    // Fill below
-    ctx.lineTo(W, cy);
-    ctx.lineTo(0, cy);
-    ctx.closePath();
-    const fillGrad = ctx.createLinearGradient(0, cy - H * 0.3, 0, cy + 10);
-    fillGrad.addColorStop(0, 'rgba(68,138,255,0.15)');
-    fillGrad.addColorStop(1, 'rgba(68,138,255,0)');
-    ctx.fillStyle = fillGrad;
-    ctx.fill();
-  }
-
-  drawWave();
+    ctx.strokeStyle = '#448aff'; ctx.lineWidth = 1.5;
+    ctx.shadowColor = '#448aff'; ctx.shadowBlur = 8; ctx.stroke(); ctx.shadowBlur = 0;
+  })();
 }
 
-// ─── VU Animation Loop ────────────────────────────────────────────────────────
-let vuAnim;
+// ─── Spatial Canvas ───────────────────────────────────────────────────────────
+const ORB_DEFS = {
+  sys: { color: '#7c4dff', glow: 'rgba(124,77,255,', x: 0.35, y: 0.45, vx: 0.0003, vy: 0.0002 },
+  mic: { color: '#448aff', glow: 'rgba(68,138,255,',  x: 0.55, y: 0.38, vx:-0.0002, vy: 0.0003 },
+  cam: { color: '#18ffcf', glow: 'rgba(24,255,207,',  x: 0.62, y: 0.60, vx: 0.0002, vy:-0.0003 },
+  scr: { color: '#ff6b35', glow: 'rgba(255,107,53,',  x: 0.30, y: 0.60, vx:-0.0003, vy:-0.0002 },
+};
 
-function startVuLoop() {
-  function tick() {
-    vuAnim = requestAnimationFrame(tick);
-    let levelL = 0, levelR = 0;
+function initSpatialCanvas() {
+  const canvas = document.getElementById('spatialCanvas');
+  const particles = Array.from({ length: 80 }, () => ({
+    x: Math.random(), y: Math.random(),
+    vx: (Math.random() - 0.5) * 0.0001, vy: (Math.random() - 0.5) * 0.0001,
+    r: Math.random() * 1.5 + 0.5, a: Math.random() * 0.4 + 0.1,
+  }));
+  const orbs = Object.entries(ORB_DEFS).map(([id, d]) => ({ id, ...d, phase: Math.random() * Math.PI * 2 }));
 
-    if (state.analyserL && state.analyserR) {
-      const bufL = new Uint8Array(state.analyserL.fftSize);
-      const bufR = new Uint8Array(state.analyserR.fftSize);
-      state.analyserL.getByteTimeDomainData(bufL);
-      state.analyserR.getByteTimeDomainData(bufR);
-      levelL = computeRMS(bufL);
-      levelR = computeRMS(bufR);
-    } else if (state.recording) {
-      // Simulated meter when no analyser
-      const t = Date.now() / 1000;
-      levelL = 0.45 + Math.sin(t * 2.1) * 0.2 + Math.random() * 0.08;
-      levelR = 0.42 + Math.sin(t * 1.8 + 0.3) * 0.2 + Math.random() * 0.08;
-    }
+  function resize() { canvas.width = canvas.offsetWidth; canvas.height = canvas.offsetHeight; }
+  resize();
+  window.addEventListener('resize', resize);
 
-    updateVuMeters(Math.min(1, levelL), Math.min(1, levelR));
-  }
-  tick();
-}
+  (function frame() {
+    requestAnimationFrame(frame);
+    const { width: W, height: H } = canvas;
+    const ctx = canvas.getContext('2d');
 
-function computeRMS(buffer) {
-  let sum = 0;
-  for (let i = 0; i < buffer.length; i++) {
-    const v = (buffer[i] - 128) / 128;
-    sum += v * v;
-  }
-  return Math.sqrt(sum / buffer.length);
-}
+    ctx.fillStyle = '#07090f'; ctx.fillRect(0, 0, W, H);
 
-// ─── Audio Engine Init ────────────────────────────────────────────────────────
-async function initAudioEngine() {
-  try {
-    state.audioCtx = new AudioContext();
-    const ctx = state.audioCtx;
+    // Grid
+    ctx.strokeStyle = 'rgba(80,60,160,0.07)'; ctx.lineWidth = 1;
+    for (let x = 0; x < W; x += 38) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke(); }
+    for (let y = 0; y < H; y += 38) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke(); }
 
-    state.gainNodes.sys = ctx.createGain();
-    state.gainNodes.mic = ctx.createGain();
-    state.gainNodes.mix = ctx.createGain();
-    state.gainNodes.sys.gain.value = state.gains.sys / 100;
-    state.gainNodes.mic.gain.value = state.gains.mic / 100;
-    state.gainNodes.mix.gain.value = state.gains.mix / 100;
+    // Radial center glow
+    const g = ctx.createRadialGradient(W*.5,H*.5,0,W*.5,H*.5,W*.6);
+    g.addColorStop(0,'rgba(60,20,120,0.1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+    ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
 
-    state.analyserL = ctx.createAnalyser();
-    state.analyserR = ctx.createAnalyser();
-    state.analyserL.fftSize = 512;
-    state.analyserR.fftSize = 512;
-
-    state.merger = ctx.createChannelMerger(2);
-    state.splitter = ctx.createChannelSplitter(2);
-
-    // Mic input
-    const micStream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: false,
-        noiseSuppression: false,
-        autoGainControl: false,
-      }
+    // Particles
+    particles.forEach(p => {
+      p.x += p.vx; p.y += p.vy;
+      if (p.x<0) p.x=1; if (p.x>1) p.x=0; if (p.y<0) p.y=1; if (p.y>1) p.y=0;
+      ctx.beginPath(); ctx.arc(p.x*W, p.y*H, p.r, 0, Math.PI*2);
+      ctx.fillStyle = `rgba(100,80,200,${p.a})`; ctx.fill();
     });
 
-    state.streams.mic = micStream;
-    state.sourceNodes.mic = ctx.createMediaStreamSource(micStream);
-    state.sourceNodes.mic.connect(state.gainNodes.mic);
-    state.gainNodes.mic.connect(state.gainNodes.mix);
-
-    // Try to find BlackHole / system audio device
-    const devices = await navigator.mediaDevices.enumerateDevices();
-    const audioInputs = devices.filter(d => d.kind === 'audioinput');
-    const blackhole = audioInputs.find(d =>
-      d.label.toLowerCase().includes('blackhole') ||
-      d.label.toLowerCase().includes('multi-output') ||
-      d.label.toLowerCase().includes('soundflower')
-    );
-
-    if (blackhole && state.sources.sys) {
-      const sysStream = await navigator.mediaDevices.getUserMedia({
-        audio: { deviceId: { exact: blackhole.deviceId }, echoCancellation: false }
-      });
-      state.streams.sys = sysStream;
-      state.sourceNodes.sys = ctx.createMediaStreamSource(sysStream);
-      state.sourceNodes.sys.connect(state.gainNodes.sys);
-      state.gainNodes.sys.connect(state.gainNodes.mix);
+    // Connection lines between active orbs
+    const active = orbs.filter(o => state.sources[o.id]);
+    for (let i = 0; i < active.length; i++) for (let j = i+1; j < active.length; j++) {
+      const a = active[i], b = active[j];
+      const dist = Math.hypot((a.x-b.x)*W, (a.y-b.y)*H);
+      if (dist < 260) {
+        ctx.beginPath(); ctx.moveTo(a.x*W,a.y*H); ctx.lineTo(b.x*W,b.y*H);
+        ctx.strokeStyle = `rgba(124,77,255,${(1-dist/260)*0.22})`; ctx.lineWidth=1; ctx.stroke();
+      }
     }
 
-    // Mix → splitter → analysers
-    state.gainNodes.mix.connect(state.splitter);
-    state.splitter.connect(state.analyserL, 0);
-    state.splitter.connect(state.analyserR, 1);
+    // Orbs
+    orbs.forEach(orb => {
+      const isActive = state.sources[orb.id];
+      const speed = state.recording ? 1.8 : 0.6;
+      orb.x += orb.vx * speed; orb.y += orb.vy * speed;
+      if (orb.x<0.08||orb.x>0.92) orb.vx*=-1;
+      if (orb.y<0.08||orb.y>0.92) orb.vy*=-1;
+      orb.phase += 0.02 * speed;
 
-    // For recording destination
-    state.gainNodes.mix.connect(ctx.destination);
-
-    updateDeviceList(audioInputs);
-  } catch (err) {
-    console.warn('Audio engine init:', err.message);
-    // Continue — VU meters will use simulation
-  }
-}
-
-function updateDeviceList(devices) {
-  const list = document.getElementById('deviceList');
-  if (!list || !devices.length) return;
-  list.innerHTML = '';
-  devices.forEach((d, i) => {
-    const el = document.createElement('div');
-    el.className = 'device-item' + (i === 0 ? ' selected' : '');
-    el.textContent = d.label || `Audio Device ${i + 1}`;
-    el.addEventListener('click', () => {
-      list.querySelectorAll('.device-item').forEach(x => x.classList.remove('selected'));
-      el.classList.add('selected');
-    });
-    list.appendChild(el);
-  });
-}
-
-// ─── Recording ────────────────────────────────────────────────────────────────
-async function startRecording() {
-  if (state.audioCtx && state.audioCtx.state === 'suspended') {
-    await state.audioCtx.resume();
-  }
-
-  state.recordedChunks = [];
-
-  // Create a stream destination for recording
-  let stream;
-  if (state.audioCtx && state.gainNodes.mix) {
-    const dest = state.audioCtx.createMediaStreamDestination();
-    state.gainNodes.mix.connect(dest);
-    stream = dest.stream;
-  } else {
-    // Fallback: try mic only
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      state.streams.mic = stream;
-    } catch (e) {
-      console.warn('Fallback recording failed:', e);
-      return;
-    }
-  }
-
-  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-    ? 'audio/webm;codecs=opus'
-    : 'audio/webm';
-
-  state.mediaRecorder = new MediaRecorder(stream, { mimeType });
-  state.mediaRecorder.addEventListener('dataavailable', e => {
-    if (e.data.size > 0) state.recordedChunks.push(e.data);
-  });
-  state.mediaRecorder.start(100);
-
-  state.recording = true;
-  state.startTime = Date.now();
-
-  // Timer
-  state.timerInterval = setInterval(() => {
-    const elapsed = Math.floor((Date.now() - state.startTime) / 1000);
-    const h = String(Math.floor(elapsed / 3600)).padStart(2, '0');
-    const m = String(Math.floor((elapsed % 3600) / 60)).padStart(2, '0');
-    const s = String(elapsed % 60).padStart(2, '0');
-    document.getElementById('timer').textContent = `${h}:${m}:${s}`;
-    document.getElementById('readyLabel').textContent = '● REC';
-    document.getElementById('readyLabel').style.color = '#ff2244';
-  }, 1000);
-}
-
-function stopRecording() {
-  if (state.mediaRecorder && state.mediaRecorder.state !== 'inactive') {
-    state.mediaRecorder.stop();
-  }
-  state.recording = false;
-  clearInterval(state.timerInterval);
-  document.getElementById('readyLabel').textContent = 'CAPTURED';
-  document.getElementById('readyLabel').style.color = '#1aff8a';
-}
-
-function saveRecording() {
-  if (!state.recordedChunks.length) {
-    alert('No recording to save. Record something first.');
-    return;
-  }
-  const blob = new Blob(state.recordedChunks, { type: 'audio/webm' });
-  const now = new Date();
-  const pad = n => String(n).padStart(2, '0');
-  const stamp = `${now.getFullYear()}${pad(now.getMonth()+1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}`;
-  const filename = `yoursound_${stamp}.webm`;
-
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
-// ─── Source Toggles ───────────────────────────────────────────────────────────
-function initSourceToggles() {
-  const toggleIds = ['sys', 'mic', 'cam', 'scr'];
-  toggleIds.forEach(id => {
-    const checkbox = document.getElementById(`toggle-${id}`);
-    const row = document.getElementById(`src-${id}`);
-    if (!checkbox || !row) return;
-
-    checkbox.addEventListener('change', () => {
-      state.sources[id] = checkbox.checked;
-      row.classList.toggle('active', checkbox.checked);
-
-      // Update dot opacity
-      const dot = row.querySelector('.source-dot');
-      if (dot) dot.style.opacity = checkbox.checked ? '1' : '0.3';
-
-      // Mute/unmute audio nodes
-      if (id === 'sys' && state.gainNodes.sys) {
-        state.gainNodes.sys.gain.value = checkbox.checked ? state.gains.sys / 100 : 0;
+      const ox = orb.x*W, oy = orb.y*H;
+      if (!isActive) {
+        ctx.beginPath(); ctx.arc(ox,oy,5,0,Math.PI*2);
+        ctx.fillStyle = orb.color+'22'; ctx.fill(); return;
       }
-      if (id === 'mic' && state.gainNodes.mic) {
-        state.gainNodes.mic.gain.value = checkbox.checked ? state.gains.mic / 100 : 0;
-      }
+
+      const pulse = 1 + Math.sin(orb.phase) * 0.15;
+      const r = 22 * pulse;
+      const gr = ctx.createRadialGradient(ox,oy,0,ox,oy,r*3.5);
+      gr.addColorStop(0,orb.glow+'0.28)'); gr.addColorStop(0.5,orb.glow+'0.07)'); gr.addColorStop(1,orb.glow+'0)');
+      ctx.beginPath(); ctx.arc(ox,oy,r*3.5,0,Math.PI*2); ctx.fillStyle=gr; ctx.fill();
+      const br = ctx.createRadialGradient(ox-r*.3,oy-r*.3,1,ox,oy,r);
+      br.addColorStop(0,orb.color+'ff'); br.addColorStop(1,orb.color+'88');
+      ctx.beginPath(); ctx.arc(ox,oy,r,0,Math.PI*2); ctx.fillStyle=br;
+      ctx.shadowColor=orb.color; ctx.shadowBlur=18; ctx.fill(); ctx.shadowBlur=0;
     });
-  });
+  })();
 }
 
 // ─── Record Button ────────────────────────────────────────────────────────────
@@ -623,29 +519,30 @@ function initRecordButton() {
   const btn = document.getElementById('recordBtn');
   const ring = document.getElementById('recordRing');
   const standby = document.getElementById('standbyLabel');
-  const statusBadge = document.getElementById('statusBadge');
+  const badge = document.getElementById('statusBadge');
+  const readyLabel = document.getElementById('readyLabel');
 
   btn.addEventListener('click', async () => {
     if (!state.recording) {
-      // Start
-      if (!state.audioCtx) await initAudioEngine();
+      btn.disabled = true;
+      standby.textContent = 'STARTING…';
+
+      await initAudioEngine();
       await startRecording();
+
+      btn.disabled = false;
       btn.classList.add('recording');
       ring.classList.add('pulsing');
-      standby.textContent = '● LIVE';
-      standby.classList.add('live');
-      statusBadge.textContent = 'LIVE';
-      statusBadge.style.color = '#ff2244';
+      standby.textContent = '● LIVE'; standby.classList.add('live');
+      readyLabel.textContent = '● REC'; readyLabel.style.color = '#ff2244';
+      badge.textContent = 'LIVE'; badge.style.color = '#ff2244';
     } else {
-      // Stop
-      stopRecording();
+      await stopRecording();
       btn.classList.remove('recording');
       ring.classList.remove('pulsing');
-      standby.textContent = 'CAPTURED';
-      standby.classList.remove('live');
-      standby.style.color = '#1aff8a';
-      statusBadge.textContent = 'STANDBY';
-      statusBadge.style.color = '';
+      standby.textContent = 'CAPTURED'; standby.classList.remove('live'); standby.style.color = '#1aff8a';
+      readyLabel.textContent = 'CAPTURED'; readyLabel.style.color = '#1aff8a';
+      badge.textContent = 'STANDBY'; badge.style.color = '';
     }
   });
 }
