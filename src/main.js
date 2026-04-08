@@ -137,15 +137,14 @@ async function initAudioEngine() {
   state.analyserL = ctx.createAnalyser(); state.analyserL.fftSize = 1024;
   state.analyserR = ctx.createAnalyser(); state.analyserR.fftSize = 1024;
 
-  // sys gain → mix
+  // sys gain → mix, mic gain → mix
   state.gainNodes.sys.connect(state.gainNodes.mix);
-  // mic gain → mix
   state.gainNodes.mic.connect(state.gainNodes.mix);
-  // mix → analysers (no ctx.destination — avoids feedback)
-  const splitter = ctx.createChannelSplitter(2);
-  state.gainNodes.mix.connect(splitter);
-  splitter.connect(state.analyserL, 0);
-  splitter.connect(state.analyserR, 1);
+  // Connect mix directly to both analysers — no splitter.
+  // Mic is mono so a ChannelSplitter kills the R channel. Both analysers
+  // see the same mixed signal; meters respond symmetrically.
+  state.gainNodes.mix.connect(state.analyserL);
+  state.gainNodes.mix.connect(state.analyserR);
 
   // ── Microphone ──
   if (state.sources.mic) {
