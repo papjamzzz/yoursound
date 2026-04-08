@@ -162,7 +162,7 @@ async function initAudioEngine() {
     }
   }
 
-  // ── System Audio: try BlackHole first, then getDisplayMedia ──
+  // ── System Audio: requires BlackHole on macOS ──
   if (state.sources.sys) {
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
@@ -176,26 +176,12 @@ async function initAudioEngine() {
         state.streams.sys = sysStream;
         ctx.createMediaStreamSource(sysStream).connect(state.gainNodes.sys);
       } else {
-        // Fallback: getDisplayMedia — browser will show screen picker.
-        // User MUST check "Share audio" / "Share system audio" in that dialog.
-        showStatus('SELECT SCREEN + ENABLE AUDIO ↗', '#ffe040');
-        const dispStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
-        state.streams.sys = dispStream;
-        const audioTracks = dispStream.getAudioTracks();
-        if (audioTracks.length > 0) {
-          ctx.createMediaStreamSource(new MediaStream(audioTracks)).connect(state.gainNodes.sys);
-        } else {
-          // User didn't enable audio in the picker — dim sys row
-          const sysRow = document.getElementById('src-sys');
-          if (sysRow) sysRow.style.opacity = '0.4';
-        }
-        dispStream.getVideoTracks().forEach(t => t.stop());
-        showStatus('STANDBY', '');
+        // No virtual audio device found — show install prompt
+        setSysStatus('NEEDS BLACKHOLE');
       }
     } catch (e) {
       console.warn('System audio unavailable:', e.message);
-      const sysRow = document.getElementById('src-sys');
-      if (sysRow) sysRow.style.opacity = '0.4';
+      setSysStatus('NEEDS BLACKHOLE');
     }
   }
 
@@ -224,6 +210,21 @@ function updateDeviceList(devices) {
 function showStatus(msg, color = '#ff2244') {
   const el = document.getElementById('standbyLabel');
   if (el) { el.textContent = msg; el.style.color = color; }
+}
+
+function setSysStatus(msg) {
+  const row = document.getElementById('src-sys');
+  if (!row) return;
+  row.style.opacity = '0.5';
+  // Show inline hint under the source row
+  let hint = document.getElementById('sys-hint');
+  if (!hint) {
+    hint = document.createElement('div');
+    hint.id = 'sys-hint';
+    hint.style.cssText = 'font-family:var(--mono);font-size:8px;color:#ffe040;letter-spacing:0.1em;padding:4px 10px 2px;line-height:1.5';
+    row.parentNode.insertBefore(hint, row.nextSibling);
+  }
+  hint.innerHTML = `${msg}<br><a href="https://existential.audio/blackhole/" target="_blank" style="color:#7c4dff;text-decoration:none">↗ install blackhole free</a>`;
 }
 
 async function startRecording() {
@@ -347,7 +348,13 @@ function initSourceToggles() {
       row.querySelector('.source-dot').style.opacity = cb.checked ? '1' : '0.3';
       row.style.opacity = '1'; // reset any dimming from failed init
       // Force re-init next record click so new source is picked up
-      if (id === 'mic' || id === 'sys') state.engineReady = false;
+      if (id === 'mic' || id === 'sys') {
+        state.engineReady = false;
+        if (id === 'sys') {
+          const hint = document.getElementById('sys-hint');
+          if (hint) hint.remove();
+        }
+      }
 
       if (id === 'cam') {
         if (cb.checked) await enableCamera();
