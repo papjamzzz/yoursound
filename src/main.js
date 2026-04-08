@@ -146,7 +146,7 @@ async function initAudioEngine() {
   state.gainNodes.mix.connect(state.analyserL);
   state.gainNodes.mix.connect(state.analyserR);
 
-  // ── Microphone ──
+  // ── Microphone first — this grants permission so device labels populate ──
   if (state.sources.mic) {
     try {
       const micStream = await navigator.mediaDevices.getUserMedia({
@@ -154,16 +154,38 @@ async function initAudioEngine() {
       });
       state.streams.mic = micStream;
       ctx.createMediaStreamSource(micStream).connect(state.gainNodes.mic);
-      updateDeviceList(await navigator.mediaDevices.enumerateDevices());
     } catch (e) {
       console.warn('Mic access denied:', e.message);
       const row = document.getElementById('src-mic');
       if (row) row.style.opacity = '0.4';
     }
+  } else {
+    // Even if mic is off, request+release a stream so labels are populated
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ audio: true });
+      tmp.getTracks().forEach(t => t.stop());
+    } catch (_) {}
   }
+
+  // Enumerate AFTER permission — labels are now populated
+  const allDevices = await navigator.mediaDevices.enumerateDevices();
+  updateDeviceList(allDevices);
 
   // ── System Audio: requires BlackHole on macOS ──
   if (state.sources.sys) {
+    // Auto-install BlackHole if running inside Tauri and it's not present
+    if (window.__TAURI__) {
+      try {
+        const result = await window.__TAURI__.core.invoke('install_blackhole');
+        if (result === 'installed') {
+          // Wait briefly for CoreAudio to reload the driver
+          await new Promise(r => setTimeout(r, 1500));
+        }
+      } catch (e) {
+        console.warn('BlackHole install:', e);
+      }
+    }
+
     try {
       const devices = await navigator.mediaDevices.enumerateDevices();
       const bh = devices.filter(d => d.kind === 'audioinput').find(d =>
