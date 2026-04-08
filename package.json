@@ -1,10 +1,14 @@
 {
-  "name": "tauri-app",
+  "name": "yoursound",
   "private": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
+    "start": "node server.js",
     "tauri": "tauri"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"
