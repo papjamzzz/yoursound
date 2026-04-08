@@ -158,6 +158,8 @@ async function initAudioEngine() {
       updateDeviceList(await navigator.mediaDevices.enumerateDevices());
     } catch (e) {
       console.warn('Mic access denied:', e.message);
+      const row = document.getElementById('src-mic');
+      if (row) row.style.opacity = '0.4';
     }
   }
 
@@ -175,22 +177,24 @@ async function initAudioEngine() {
         state.streams.sys = sysStream;
         ctx.createMediaStreamSource(sysStream).connect(state.gainNodes.sys);
       } else {
-        // Fallback: capture desktop audio via getDisplayMedia
-        const dispStream = await navigator.mediaDevices.getDisplayMedia({
-          video: false, audio: true
-        });
+        // Fallback: getDisplayMedia — browser will show screen picker.
+        // User MUST check "Share audio" / "Share system audio" in that dialog.
+        showStatus('SELECT SCREEN + ENABLE AUDIO ↗', '#ffe040');
+        const dispStream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
         state.streams.sys = dispStream;
         const audioTracks = dispStream.getAudioTracks();
         if (audioTracks.length > 0) {
-          const sysOnly = new MediaStream(audioTracks);
-          ctx.createMediaStreamSource(sysOnly).connect(state.gainNodes.sys);
+          ctx.createMediaStreamSource(new MediaStream(audioTracks)).connect(state.gainNodes.sys);
+        } else {
+          // User didn't enable audio in the picker — dim sys row
+          const sysRow = document.getElementById('src-sys');
+          if (sysRow) sysRow.style.opacity = '0.4';
         }
-        // Stop video tracks immediately (we only want audio)
         dispStream.getVideoTracks().forEach(t => t.stop());
+        showStatus('STANDBY', '');
       }
     } catch (e) {
       console.warn('System audio unavailable:', e.message);
-      // Dim the sys source row
       const sysRow = document.getElementById('src-sys');
       if (sysRow) sysRow.style.opacity = '0.4';
     }
@@ -218,6 +222,11 @@ function updateDeviceList(devices) {
 }
 
 // ─── Recording ────────────────────────────────────────────────────────────────
+function showStatus(msg, color = '#ff2244') {
+  const el = document.getElementById('standbyLabel');
+  if (el) { el.textContent = msg; el.style.color = color; }
+}
+
 async function startRecording() {
   state.recordedChunks = [];
 
@@ -236,9 +245,10 @@ async function startRecording() {
   }
 
   if (!tracks.length) {
-    // Nothing captured yet — shouldn't happen but handle gracefully
-    console.warn('No active tracks to record');
-    return;
+    showStatus('NO SOURCE', '#ff2244');
+    document.getElementById('readyLabel').textContent = 'NO SOURCE';
+    document.getElementById('readyLabel').style.color = '#ff2244';
+    throw new Error('No active audio/video tracks — enable at least one source.');
   }
 
   const combinedStream = new MediaStream(tracks);
@@ -336,6 +346,9 @@ function initSourceToggles() {
       state.sources[id] = cb.checked;
       row.classList.toggle('active', cb.checked);
       row.querySelector('.source-dot').style.opacity = cb.checked ? '1' : '0.3';
+      row.style.opacity = '1'; // reset any dimming from failed init
+      // Force re-init next record click so new source is picked up
+      if (id === 'mic' || id === 'sys') state.engineReady = false;
 
       if (id === 'cam') {
         if (cb.checked) await enableCamera();
@@ -526,16 +539,24 @@ function initRecordButton() {
     if (!state.recording) {
       btn.disabled = true;
       standby.textContent = 'STARTING…';
+      standby.style.color = '';
 
-      await initAudioEngine();
-      await startRecording();
-
+      try {
+        await initAudioEngine();
+        await startRecording();
+        // Only update UI if recording actually started
+        btn.classList.add('recording');
+        ring.classList.add('pulsing');
+        standby.textContent = '● LIVE'; standby.classList.add('live'); standby.style.color = '#ff2244';
+        readyLabel.textContent = '● REC'; readyLabel.style.color = '#ff2244';
+        badge.textContent = 'LIVE'; badge.style.color = '#ff2244';
+      } catch (err) {
+        console.error('Record failed:', err.message);
+        // Reset to standby — don't show LIVE
+        standby.textContent = 'NO SOURCE'; standby.style.color = '#ff2244';
+        readyLabel.textContent = 'READY'; readyLabel.style.color = '';
+      }
       btn.disabled = false;
-      btn.classList.add('recording');
-      ring.classList.add('pulsing');
-      standby.textContent = '● LIVE'; standby.classList.add('live');
-      readyLabel.textContent = '● REC'; readyLabel.style.color = '#ff2244';
-      badge.textContent = 'LIVE'; badge.style.color = '#ff2244';
     } else {
       await stopRecording();
       btn.classList.remove('recording');
