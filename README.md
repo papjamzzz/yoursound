@@ -1,7 +1,19 @@
-# Tauri + Vanilla
+# YourSound
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Javascript.
+**Audio fingerprinting and discovery tool.**
 
-## Recommended IDE Setup
+Find what a sound is, where it came from, and what it connects to.
 
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+---
+
+Identify audio samples, loops, and recordings. Trace origins, discover connections.
+
+---
+
+## Stack
+
+Tauri · Vanilla JS · Rust
+
+---
+
+*A Creative Konsoles project.*
